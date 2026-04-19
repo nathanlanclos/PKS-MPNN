@@ -1,0 +1,50 @@
+# Full Module Experiment Configuration
+#
+# Trains on complete PKS module structures (dimers) with pLDDT-aware masking.
+# This provides maximum structural context but includes potentially noisy regions.
+#
+# Masking strategy:
+#   - pLDDT > 70: Full loss weight (train on these residues)
+#   - 50 < pLDDT <= 70: Include in graph but mask from loss
+#   - pLDDT <= 50: Exclude from input graph entirely
+#
+# Purpose: Understand full module relationships and interfaces
+# Expected: Better interface recovery, may struggle with variable regions
+#
+# Usage:
+#   python scripts/05_train_full_module.py --config configs/exp_full_module.yaml
+
+base_config: base.yaml
+
+experiment:
+  name: full_module
+  type: full_module
+  description: "Training on full PKS modules with pLDDT masking"
+
+# Cropping strategy
+cropping:
+  strategy: full_module
+  
+  # pLDDT thresholds for tiered masking
+  high_confidence_threshold: 70.0  # Above: contribute to loss
+  low_confidence_threshold: 50.0   # Below: exclude from graph
+  
+  # Minimum high-confidence residues to include a structure
+  min_trainable_residues: 100
+  
+  # Whether to exclude very low confidence regions from graph
+  exclude_low_confidence: true
+
+# Training adjustments for full modules
+training:
+  num_epochs: 100
+  batch_size: 6000  # Lower batch size due to larger structures
+  backbone_noise: 0.25  # Slightly higher noise for robustness
+  
+# wandb settings
+wandb:
+  run_name: full_module_plddt_masked
+  tags:
+    - full_module
+    - plddt_masking
+    - ablation

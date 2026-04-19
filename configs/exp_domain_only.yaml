@@ -1,0 +1,47 @@
+# Domain-Only Experiment Configuration
+# 
+# Trains on individual PKS domains (KS, AT, DH, ER, KR, ACP, etc.)
+# without any context from neighboring domains or linkers.
+#
+# Purpose: Understand domain-specific sequence patterns
+# Expected: Good within-domain recovery, poor interface prediction
+#
+# Usage:
+#   python scripts/04_train_domain_only.py --config configs/exp_domain_only.yaml
+#   python scripts/04_train_domain_only.py --config configs/exp_domain_only.yaml --domain_type AT
+
+base_config: base.yaml
+
+experiment:
+  name: domain_only
+  type: domain_only
+  description: "Training on individual domains without context"
+
+# Domain-specific settings
+domain:
+  # Which domain to train on (can be overridden via --domain_type)
+  # Options: KS, AT, DH, ER, KR, ACP, oMT, C, A, PCP, E
+  domain_type: null  # null = train on all domains
+  
+  # Minimum domain length to include
+  min_domain_length: 20
+  
+  # Exclude linker regions (domains ending in 'L')
+  exclude_linkers: true
+
+# Cropping strategy
+cropping:
+  strategy: domain_only
+  plddt_threshold: 70.0
+  
+# Training adjustments for domain-only
+training:
+  num_epochs: 50  # Fewer epochs since domains are smaller
+  batch_size: 8000
+  
+# wandb settings
+wandb:
+  run_name: domain_only_${domain.domain_type}
+  tags:
+    - domain_only
+    - ablation

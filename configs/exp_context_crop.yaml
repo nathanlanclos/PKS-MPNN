@@ -1,0 +1,64 @@
+# Context-Aware Cropping Experiment Configuration
+#
+# Smart cropping that preserves ProteinMPNN's K=48 nearest neighbor relationships
+# while maximizing geometric diversity. This is the balanced approach between
+# domain-only and full module.
+#
+# Algorithm:
+#   1. Select design residues (high-confidence core domains)
+#   2. Build KNN graph with K=48 neighbors
+#   3. Expand to include all K-neighbors of design residues
+#   4. Score context by "neighborhood diversity" (interface vs interior)
+#   5. Filter by pLDDT confidence
+#
+# Purpose: Optimal balance - retain informative neighborhoods, avoid noise
+# Expected: Best overall performance, especially on interfaces
+#
+# Usage:
+#   python scripts/06_train_context_crop.py --config configs/exp_context_crop.yaml
+
+base_config: base.yaml
+
+experiment:
+  name: context_crop
+  type: context_aware
+  description: "Training with K=48 neighbor-preserving context-aware cropping"
+
+# Cropping strategy
+cropping:
+  strategy: context_aware
+  
+  # KNN graph parameters (matches ProteinMPNN)
+  k_neighbors: 48
+  
+  # pLDDT thresholds
+  plddt_design_threshold: 70.0   # Min pLDDT for design residues
+  plddt_context_threshold: 50.0  # Min pLDDT for context residues
+  
+  # Which domains to use as design regions
+  # null = all core domains (KS, AT, DH, ER, KR, ACP, etc.)
+  design_domains: null
+  
+  # Include linker regions as context (but not design)
+  include_linkers_as_context: true
+  
+  # Maximum ratio of context to design residues
+  max_context_expansion: 2.0
+  
+  # Minimum neighborhood diversity score for context inclusion
+  # Higher = more selective, only keep diverse (interface) residues
+  diversity_threshold: 0.1
+
+# Training adjustments
+training:
+  num_epochs: 100
+  batch_size: 8000
+  backbone_noise: 0.2
+  
+# wandb settings
+wandb:
+  run_name: context_aware_k48
+  tags:
+    - context_aware
+    - knn_preserving
+    - ablation

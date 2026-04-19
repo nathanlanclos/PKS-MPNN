@@ -1,0 +1,49 @@
+# Base configuration for PKS-MPNN experiments
+# Other configs inherit from this using base_config: base.yaml
+
+# Model configuration
+model:
+  hidden_dim: 128
+  num_encoder_layers: 3
+  num_decoder_layers: 3
+  k_neighbors: 48
+  dropout: 0.1
+  backbone_noise: 0.2  # Noise augmentation during training
+
+# Training configuration
+training:
+  num_epochs: 100
+  batch_size: 10000  # Max tokens (residues) per batch
+  warmup_steps: 4000
+  gradient_norm: 1.0
+  mixed_precision: true
+  label_smoothing: 0.0
+  save_every: 10
+  
+  # Optimizer
+  optimizer: adam
+  use_noam: true
+
+# pLDDT confidence thresholds
+plddt:
+  high_threshold: 70.0   # Residues above this contribute to loss
+  low_threshold: 50.0    # Residues below this excluded from graph
+
+# Fine-tuning configuration
+finetune:
+  # Path to pretrained weights (relative to repo root)
+  pretrained_weights: ProteinMPNN/vanilla_model_weights/v_48_020.pt
+  unfreeze_phase: decoder_only  # decoder_only, encoder_decoder, full
+
+# Data paths (relative to repo root)
+data:
+  cif_dir: data/raw
+  annotation_csv: fragments_for_prediction_COREONLY.csv
+  splits_dir: data/splits
+
+# wandb configuration
+# Set entity to your wandb username or team name for team projects
+wandb:
+  project: PKS-MPNN
+  entity: esm-pks # Your wandb username/team, or null for default
+  mode: online  # online, offline, disabled

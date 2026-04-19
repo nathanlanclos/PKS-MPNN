@@ -1,0 +1,357 @@
+I am attempting to do a full fine-tune of ProteinMPNN using predicted PKS structures. I have 1600 unique PKS modules and 5 strutcures for each (from the 5 alphafold models in AF3). These range in size anywhere from 1000-2500 (in monomer form, these are predicted as dimers though) residues depending on architecture. What I am wondering is if I should be training on the full modules, individual domains, or combinations of domains (for example, KS-ATs, reduction loops, etc). Something that I think is relevant is that residue identities are sensitive to local nieghborhoods so if we are to split the full modules we may lose resolution for key interface prediction. I also don't know if we should be clustering and deduplicating the dataset, and if so, how? We could do it via sequence but feel like we could be losing key structural variability because the amount of possible states with proteins so large and without foundational crystal structure it is hard to parse what is signal vs noise. For example, we used FoldMason to align all modules of the same architecture to observe structural conservation in the predictions and there is a ton of variability in anything that is not KS-AT. What would you suggest I try? 
+Thought for 2m 42s
+
+What your plots are screaming is: KS–AT is consistently high-confidence, and everything that isn’t KS–AT (reduction loop region, linkers, ACP, etc.) is often low-confidence / heterogeneous across AF3 models. That should drive the training strategy more than “module vs domain” as an abstract question.
+
+Below is what I’d actually try, in the order I’d do it, with concrete mechanics that preserve local neighborhood information without forcing you to train on huge, noisy full-module graphs.
+
+1) Don’t choose “full module” vs “domain” — choose design region vs structural context
+
+ProteinMPNN is residue-graph-based: each residue “sees” a local 3D neighborhood (K nearest neighbors). So you can keep interface context without paying the full-noisy-module penalty by doing:
+
+Feed ProteinMPNN a crop that contains the region you want to learn + all residues within a distance cutoff
+
+Compute loss only on the region you want to predict
+
+Keep the surrounding residues as fixed context (sequence provided / masked from loss)
+
+This is the best of both worlds:
+
+You preserve cross-domain contacts that matter for residue identity.
+
+You avoid training on massive low-confidence flexible chunks.
+
+Practical crop rule
+
+For a chosen set of “designable” residues 
+𝑅
+R (e.g., the KS domain, or KS–AT interface residues):
+
+Let context 
+𝐶
+=
+{
+𝑖
+:
+min
+⁡
+𝑗
+∈
+𝑅
+𝑑
+(
+𝑖
+,
+𝑗
+)
+≤
+14
+A
+˚
+}
+C={i:min
+j∈R
+	​
+
+d(i,j)≤14
+A
+˚
+}
+
+Train on substructure 
+𝑅
+∪
+𝐶
+R∪C
+
+Loss mask = residues in 
+𝑅
+R (or in 
+𝑅
+∩
+{
+pLDDT
+>
+𝜏
+}
+R∩{pLDDT>τ})
+
+Distance cutoff: 12–16 Å works well; pick 14 Å as a default.
+
+2) Use your AF3 5-model ensemble as augmentation, not 5× more data
+
+You have 1600 sequences, not 8000 independent examples.
+
+Recommended:
+
+Keep all 5 structures, but sample 1 structure per module per epoch/step (or per batch element).
+
+Optionally: if two AF3 models disagree strongly, that’s not “diversity,” it’s uncertainty—handle it with weighting/filtering (next section).
+
+Also: all 5 structures for a sequence must stay in the same split (train/val/test), or you’ll leak.
+
+3) Make pLDDT/PAE part of the training signal (or at least the loss mask)
+
+Your plots show many architectures where the “best 10%” lDDT threshold is great for KS–AT (0.93–0.97) but collapses to ~0.65–0.66 when you include large multi-domain/flexible regions. That’s exactly where naïvely training on full modules can teach the model nonsense geometry.
+
+Minimum viable thing (easy, high impact)
+
+Mask loss to residues with pLDDT ≥ 70 (or 80 if you want to be strict early).
+
+Or weight loss by confidence:
+
+w_i = clamp((pLDDT_i - 50)/50, 0, 1) (simple linear)
+
+If you can use PAE (even better)
+
+Inter-domain orientation is often what’s unstable.
+
+When building the graph edges or when cropping context, downweight / drop edges between residues whose mutual PAE is high (e.g., > 10–15 Å).
+
+This prevents the model from learning “contacts” that are artifacts of uncertain domain placement.
+
+4) Curriculum: start where structure is reliable, then expand
+
+Given your observation that KS–AT is conserved and everything else is floppy/noisy, I’d do:
+
+Stage A — “KS–AT mastery”
+
+Training examples:
+
+Design region 
+𝑅
+R: KS–AT (or even just KS, then KS+AT)
+
+Context: include everything within 14 Å (will naturally include interface residues into DH/linkers if they’re close)
+
+Loss mask: pLDDT-filtered residues within KS–AT
+
+Goal:
+
+Improve NLL / recovery specifically on KS–AT and KS–AT interfaces.
+
+Stage B — “adjacent-pair interfaces”
+
+Train on domain pairs that represent real design constraints:
+
+KS–AT, AT–DH, DH–ER, ER–KR, KR–ACP, and “KS–AT + loop” variants
+
+But still use the crop trick so the pair has correct neighborhood context.
+
+This is where you’ll start capturing “swap-compatibility” interface priors without relying on global module geometry.
+
+Stage C — full-module (selective) training
+
+Only after A/B are stable:
+
+Provide full module graphs but keep loss masked/weighted by confidence
+
+Optionally: only include residues within confident domains + a small buffer into linkers
+
+This stage is mainly to let the model see longer-range packing patterns when they’re real, not to force it to memorize low-confidence spaghetti.
+
+5) Yes, cluster & deduplicate — but do it to protect evaluation, not to erase “structural variability”
+
+With 1600 modules, overfitting + leakage are your real enemies. Clustering is mostly about getting a meaningful held-out test.
+
+What to cluster on
+
+I’d cluster on sequence, because:
+
+Structure variability across AF3 models for the same sequence is uncertainty, not independent signal.
+
+“True” structural diversity that matters for generalization is usually coupled to sequence divergence anyway.
+
+Two good options:
+
+Cluster on full module sequence (simple, strict)
+
+Cluster on KS (or KS–AT) only if architectures vary wildly and you care about cross-architecture generalization
+
+Thresholds (practical)
+
+Use 70–80% identity clustering for splitting families (depends how conservative you want to be).
+
+Then do train/val/test splits by cluster, not by individual proteins.
+
+Also consider stratifying by architecture so your test set isn’t missing a whole class.
+
+mmseqs2 clustering (example)
+mmseqs easy-cluster modules.fasta clusters tmp \
+  --min-seq-id 0.8 -c 0.8 --cov-mode 1
+
+6) What to do about “training on full modules may preserve interfaces”
+
+You’re right in principle, but the key nuance is:
+
+ProteinMPNN needs correct local 3D neighborhoods.
+
+If AF3 is confident in a domain but not in relative domain placement, full-module training can destroy the neighborhood signal with wrong contacts.
+
+That’s why “crop-with-context + confidence/PAE-aware masking” is the sweet spot: you preserve real interfaces and ignore uncertain long-range junk.
+
+7) Quick ablation matrix (so you get answers fast)
+
+If you run these four fine-tunes (even short runs), you’ll learn a lot:
+
+KS–AT only, domain-only (no context)
+
+KS–AT crop, with 14 Å context, loss on KS–AT
+
+Domain-pair crops (KS–AT, AT–DH, …)
+
+Full module, loss masked by pLDDT
+
+Evaluate each on:
+
+Held-out cluster NLL (overall + per-domain)
+
+Sequence recovery on confident residues
+
+Optional: AF2/AF3 “round-trip” confidence on designed sequences for a small sample
+
+I would expect (2) and (3) to beat (1) and be much more stable than (4) early.
+
+8) Dimer issue: treat it as context unless you’re sure it’s real
+
+Since AF3 predicts dimers:
+
+If the dimer interface has high confidence and you believe it’s biologically plausible, include it as a 2-chain input and compute loss on one chain (or both).
+
+If you suspect it’s an artifact, don’t let it dominate:
+
+train monomer-only, or
+
+keep partner chain but drop inter-chain edges unless interface confidence is high.
+
+My concrete recommendation for you
+
+Annotate domain boundaries (Pfam/HMMER/antiSMASH/your existing PKS annotations).
+
+Build a dataset of interface-preserving crops (14 Å context) with a loss mask on:
+
+(KS–AT) first
+
+then adjacent pairs
+
+Cluster by KS–AT sequence at ~0.8 identity, split by cluster; keep all 5 AF3 models together.
+
+During training, randomly sample one of the 5 AF3 structures each time a module is seen.
+
+Only after that works, attempt full-module training with pLDDT/PAE-aware masking.
+
+If you want, paste (or describe) how you currently generate ProteinMPNN inputs (PDB parsing, neighbor K, chain handling, how you store AF3 outputs), and I’ll sketch a clean data pipeline that implements the crop+mask strategy without blowing up complexity.
+
+could there be an advantage to training an inverse folding model to predict residues with the AF3 "nonsense" geometry so we can align our understanding of these systems to a representation that we can reliably leverage for design choices? Even if it is incorrect, we know that the sequence that these structures come from are natural and can be considered highly functional in natural systems, so why cant we simply treat the AF3 models as a medium for representing them despite the potential falsities of alphafold? 
+Thought for 28s
+
+Yes — there can be an advantage — but it depends on what you mean by “leverage for design choices,” and what you ultimately validate against.
+
+A useful way to frame it:
+
+AF3 defines a geometry manifold 
+𝑓
+(
+seq
+)
+→
+structure
+f(seq)→structure that is internally consistent with its own priors and biases.
+
+Training an inverse model 
+𝑔
+(
+structure
+)
+→
+seq
+g(structure)→seq on AF3 outputs is basically learning an approximate inverse of AF3’s mapping, not necessarily biology’s mapping.
+
+That can be valuable, but it creates a “sim-to-real” gap risk.
+
+When training on “wrong” AF3 geometry can still help
+
+It can be beneficial if your downstream loop is self-consistent in AF3-space, e.g.:
+
+You plan to score/evaluate designs with AF3 (or AF-family predictors)
+Then distilling the AF3 manifold into your inverse model can make design much faster:
+
+“Give me sequences that AF3 will predict as plausible for this scaffold.”
+
+Even if the scaffold is not physically correct, the model can produce sequences that sit on the AF3-credible manifold.
+
+You’re using AF3 as a compression medium / canonicalization tool
+For giant, flexible proteins, the “true” structure is an ensemble. AF3 gives you a consistent representation that might correlate with function in a coarse way (e.g., KS–AT geometry), even if linkers/loops are off.
+
+You only care about local geometry in confident regions
+Even if global domain placement is wrong, the local neighborhoods inside high-confidence domains can still be quite informative for residue identity.
+
+Why this can fail badly (the core danger)
+
+The fact that the sequences are natural and functional does not guarantee that the particular AF3 geometry you’re conditioning on is causally related to the sequence constraints.
+
+Two key failure modes:
+
+1) You teach the inverse model to explain artifacts
+
+If AF3 invents contacts, the inverse model will learn that certain residues are “required” to satisfy those contacts. That can:
+
+reduce generalization,
+
+push designs toward sequences that “please AF3” rather than sequences that fold/function.
+
+This is exactly the classic problem of exploiting simulator bugs in model-based design: you optimize to a biased world model and get designs that don’t transfer.
+
+2) Flexible regions aren’t single-structure-determined
+
+In low-confidence regions (loops, linkers, swinging domains), sequence is shaped by an ensemble of conformations + interactions + dynamics, not one static pose. Conditioning on one random predicted pose can inject anti-signal: the model “must” fit a geometry that the protein doesn’t actually adopt reliably.
+
+The middle ground that usually wins
+
+If you want to use AF3 as the “medium” and keep designs biologically meaningful, treat AF3 geometry as a noisy observation with uncertainty, not ground truth.
+
+Practically, that means:
+
+Ensemble training, not single-structure training
+
+Use all 5 AF3 models per module as augmentations.
+
+But train the inverse model to be robust to that variability, not to memorize one pose.
+
+Confidence-aware learning
+
+Mask or downweight loss where geometry is likely nonsense (low pLDDT / high PAE / high ensemble spread).
+
+This still lets you leverage AF3 as a medium, but you’re explicitly telling the model: “don’t learn hard constraints from unreliable geometry.”
+
+Context-preserving crops
+
+Keep local neighborhoods and real interfaces when they’re confident.
+
+Avoid forcing the model to condition on a full-module global arrangement that AF3 can’t reliably nail.
+
+A crisp decision rule
+
+If your goal is AF3-consistent design (you’ll choose candidates largely based on AF3 scores), then training on AF3 geometry can absolutely be strategic — it’s distillation.
+
+If your goal is real-world functional design (wet lab, activity, stability), then uncritical training on “nonsense” geometry invites a simulator-exploitation problem. You’ll likely do better with confidence-aware training + ensemble robustness.
+
+A simple experiment to settle it empirically
+
+Train two variants and compare where they succeed:
+
+Naïve AF3-inversion model: full module, no masking
+
+Uncertainty-aware model: ensemble sampling + confidence/PAE masking + crops
+
+Then evaluate designs in three ways:
+
+AF3 self-consistency: does AF3 predict high confidence for sequences sampled from the model?
+
+Cross-predictor consistency: do AF2/other predictors agree (even roughly) on the fold/domain packing?
+
+Motif/constraint sanity: catalytic motifs, domain signatures, conserved active-site patterns remain intact.
+
+If (1) looks great on AF3 but collapses on cross-predictors / motif sanity, you’ve directly observed simulator overfitting. If (2) is strong across all three, you’ve got a design model that uses AF3 as a medium without becoming enslaved to its artifacts.
+
+If you want, I can propose a concrete loss weighting scheme that uses (pLDDT, PAE, and AF3-ensemble variance) to decide which residues/edges “count” during training — that’s usually the cleanest way to operationalize the idea you’re describing.

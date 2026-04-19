@@ -1,0 +1,53 @@
+# External dependencies
+ProteinMPNN/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.manifest
+*.spec
+
+# Data (too large for git)
+data/raw/
+data/processed/
+*.cif
+
+# Outputs
+outputs/
+logs/
+wandb/
+
+# Environment
+.env
+*.log
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MMseqs2 temp files
+mmseqs_tmp/

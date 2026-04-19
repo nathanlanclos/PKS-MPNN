@@ -1,0 +1,120 @@
+I am attempting to do a full fine-tune of ProteinMPNN using predicted PKS structures. I have 1600 unique PKS modules and 5 strutcures for each (from the 5 alphafold models in AF3). These range in size anywhere from 1000-2500 (in monomer form, these are predicted as dimers though) residues depending on architecture. What I am wondering is if I should be training on the full modules, individual domains, or combinations of domains (for example, KS-ATs, reduction loops, etc). Something that I think is relevant is that residue identities are sensitive to local nieghborhoods so if we are to split the full modules we may lose resolution for key interface prediction. I also don't know if we should be clustering and deduplicating the dataset, and if so, how? We could do it via sequence but feel like we could be losing key structural variability because the amount of possible states with proteins so large and without foundational crystal structure it is hard to parse what is signal vs noise. For example, we used FoldMason to align all modules of the same architecture to observe structural conservation in the predictions and there is a ton of variability in anything that is not KS-AT. What would you suggest I try? 
+
+This is a fascinating dataset. Polyketide Synthases (PKS) are notoriously difficult for structure prediction because of their modular flexibility and the "beads on a string" architecture.
+
+Based on your goal to capture interface specificity and the specific constraints of ProteinMPNN, here is a breakdown of how to handle the training unit, clustering, and the signal-vs-noise problem.
+
+1. Training Unit: Full Modules (Dimers)
+You should train on full modules in their dimer configuration, rather than splitting them into individual domains.
+
+The "Neighborhood" Problem: You correctly identified that residue identities are sensitive to local neighborhoods. In PKS, the most critical "neighborhoods" are the interfaces (e.g., KS-AT linker regions, the inter-module docking domains, and the transient interactions with the ACP).
+
+Loss of Context: If you split into single domains (just KS, just AT), you strip away the structural context that dictates surface residues. ProteinMPNN will learn to make those interfaces "water-soluble" (polar/charged) rather than "interface-compatible" (hydrophobic/complementary), which would defeat the purpose of your fine-tuning.
+
+Handling Flexibility: The "variability" you see in the non-KS-AT domains (the reduction loops) is likely biologically relevant flexibility. The reductive domains often undergo large conformational changes to access the ACP. Training on the full module forces the model to learn sequences compatible with these specific tertiary arrangements.
+
+2. Handling the "Signal vs. Noise" (Variability)
+The plots provided show high conservation (orange/high LDDT) in the KS-AT core and massive drop-offs in the reductive domains (DH, ER, KR). You need to distinguish between Conformational Heterogeneity (Signal) and Prediction Failure (Noise).
+
+Strategy: Use AlphaFold's confidence metric (pLDDT) as a gatekeeper during training.
+
+Don't rely solely on alignment LDDT: The plots show alignment consistency (LDDT across your dataset). Low consistency here just means the domain moves relative to the core. This is fine.
+
+Use per-residue pLDDT: When calculating the training loss (Cross Entropy), mask out residues where AlphaFold's pLDDT < 70 (or 60).
+
+Why? If AF3 has low confidence (low pLDDT), the backbone coordinates are likely hallucinated spaghetti. Forcing ProteinMPNN to predict sequences for a hallucinated backbone teaches it garbage.
+
+Implementation: In your training loop, weight the loss for each residue by its pLDDT, or set the loss to 0 for low-confidence residues.
+
+3. Clustering and Deduplication
+With 1,600 unique modules, you are in a "data-poor" regime for deep learning, so rigorous splitting is vital to avoid overfitting.
+
+Cluster by Sequence (30-40% Identity): Use MMseqs2 or CD-HIT. Structure-based clustering (FoldSeek) is risky here because the flexible domains might trick the clusterer into thinking two identical sequences are different structures.
+
+The "5 Models" Rule: Treat the 5 AF3 models for a single sequence as a single data cluster.
+
+Do: Put all 5 models of Sequence A into the Training Set.
+
+Do Not: Put Model 1 of Sequence A in Training and Model 2 of Sequence A in Validation. This causes massive data leakage.
+
+Use the 5 models as Augmentation: Since you have 5 conformations per sequence, use all of them in the training set. This is actually a feature, not a bug. It teaches ProteinMPNN: "Sequence X is compatible with Backbones A, B, C, D, and E." This makes the model robust to the exact type of linker flexibility you observed in FoldMason.
+
+4. Recommended Workflow
+Data Prep:
+
+Generate a .jsonl dataset containing the coordinates for all 5 models of your 1,600 modules (8,000 entries total).
+
+Include the chain ID for the dimer partner to ensure the model sees the homodimer interface.
+
+Filtering:
+
+Parse the b-factors (which AF3 stores as pLDDT) from the PDB/CIF files. Create a mask: 1 if pLDDT > 70, 0 if < 70. Pass this mask to the model training step.
+
+Noise Injection:
+
+During training, use a slightly higher noise level on the input coordinates (e.g., 0.2–0.3 Å) to prevent the model from memorizing the specific artifacts of AF3 backbones.
+
+Summary Recommendation
+Train on Full Dimers, using all 5 AF3 models as data augmentation, but mask the loss on residues with low AF3 confidence (pLDDT). This preserves the critical domain interfaces while ignoring the structural "noise" from poor predictions.
+
+Would you like me to generate a Python snippet for filtering the PDBs/CIFs based on pLDDT to create the training masks?
+
+So you are suggesting that we don't train at all on residues that are under plddt 70?
+
+Yes, but with a very important distinction: I am suggesting you mask them from the Loss Function, not necessarily remove them from the input completely, though effectively ignoring them is often safer.
+
+Here is the nuanced reasoning why masking the loss on low-pLDDT residues is the standard best practice for training on predicted structures, especially for "floppy" proteins like PKS.
+
+1. The "Hallucination Trap"
+AlphaFold is not perfect. When it is unsure of a region (low pLDDT), it often produces "spaghetti"—unphysical loops or extended disordered regions that don't reflect reality.
+
+If you train on this (Unmasked): You are forcing ProteinMPNN to learn: "What sequence folds into this specific weird, spaghetti shape?" Since the shape is fake, the model learns nonsense rules. It essentially hallucinates a sequence to match the hallucinated structure.
+
+If you mask the loss: The model still sees the atoms as neighbors (providing some geometric context), but it gets zero penalty for guessing the "wrong" amino acid at those positions. It only updates its weights based on the high-quality regions (the catalytic domains and stable interfaces).
+
+2. The Critical Distinction: Flexibility vs. Uncertainty
+This is the answer to your "Signal vs. Noise" problem. You need to distinguish between Inter-domain Motion and Local Disorder.
+
+Scenario A: High pLDDT, Low Alignment Score (Real Signal)
+
+What it is: The KR domain is perfectly folded (helix/sheet is clear), but it is swinging around on a linker relative to the KS domain.
+
+Action: Train on this. This is the "structural variability" you want to capture. The local geometry is correct, even if the global position varies.
+
+Scenario B: Low pLDDT (Noise)
+
+What it is: The linker itself, or a disordered loop, where AF3 just put atoms anywhere to connect the chain.
+
+Action: Mask this. The backbone geometry here is unreliable.
+
+3. A "Soft" Threshold Recommendation
+Since PKS modules are large and naturally have some flexible regions that might hover around 60-70 pLDDT, a hard cutoff of 70 might be too aggressive and delete useful data.
+
+I recommend a Weighted Loss approach or a Tiered Mask:
+
+pLDDT > 70: Weight = 1.0 (Full training).
+
+50 < pLDDT < 70: Weight = 0.0 (Mask Loss).
+
+Why? Keep these atoms in the input graph (so neighbors know they exist), but do not grade the model on predicting their sequence. This effectively tells the model: "There is something here, but don't obsess over the exact backbone angles."
+
+pLDDT < 50: Mask Input AND Loss (Treat as missing coordinates).
+
+Why? Below 50, AF3 coordinates are often essentially random. Including them in the neighbor graph adds geometric noise that confuses the attention mechanism.
+
+How to implement this?
+In the standard ProteinMPNN data loader, there is usually a mask or chain_mask parameter. You can repurpose this (or add a loss_mask).
+
+If you are using the vanilla PyTorch training loop, your loss calculation would look something like this:
+
+Python
+# standard_loss shape: [batch, length]
+# plddt_mask shape: [batch, length] (1 for good residues, 0 for bad)
+
+loss = criterion(logits, targets)
+masked_loss = (loss * plddt_mask).sum() / plddt_mask.sum()
+loss.backward()
+Summary
+Don't train on low confidence residues. If the backbone is wrong, the sequence-structure relationship is false. By masking the loss, you ensure the model focuses 100% of its learning capacity on the high-quality interfaces (KS-AT, docking domains) that determine specificity, which is exactly what you want.
+
+Would you like me to help you check if your "variable" regions (from the plots) correlate with low pLDDT, to confirm if they are noise or real motion?

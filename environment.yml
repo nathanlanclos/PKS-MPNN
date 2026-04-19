@@ -1,0 +1,35 @@
+# PKS-MPNN Conda Environment
+# For Berkeley Savio cluster with A40 GPUs
+# 
+# Setup:
+#   conda env create -f environment.yml
+#   conda activate pks-mpnn
+
+name: pks-mpnn
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pytorch=2.1
+  - pytorch-cuda=11.8
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - scikit-learn>=1.3
+  - biopython>=1.81
+  - pyyaml>=6.0
+  - tqdm>=4.65
+  - matplotlib>=3.7
+  - seaborn>=0.12
+  - jupyter>=1.0
+  - ipykernel
+  - ipywidgets
+  - pip
+  - pip:
+    - wandb>=0.15
+    - einops>=0.6
+    - omegaconf>=2.3

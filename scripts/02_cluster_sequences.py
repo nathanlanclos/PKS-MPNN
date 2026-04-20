@@ -2,17 +2,30 @@
 """
 Cluster PKS module sequences using MMseqs2.
 
-This ensures that similar sequences are grouped together for proper
-train/val/test splitting. All members of a cluster go to the same split.
+Clusters are used by ``03_create_splits.py`` so **similar sequences never
+appear in different splits** (no train/test leakage). Splits are by
+**fragment_id**; every structure file for that ID (e.g. five AF models) maps
+to the same ID, so all models stay in one split automatically.
+
+Optional ``--cif_dir`` restricts clustering to fragment IDs that have at least
+one structure file on disk (recommended before full training).
 
 Usage:
     python scripts/02_cluster_sequences.py \
         --annotation_csv fragments_for_prediction_COREONLY.csv \
         --output_dir data/splits \
         --min_seq_identity 0.7
+
+    # Only fragments with files under data/raw (aligns splits to your PDB/CIF set)
+    python scripts/02_cluster_sequences.py \
+        --annotation_csv fragments_for_prediction_COREONLY.csv \
+        --output_dir data/splits \
+        --cif_dir data/raw \
+        --min_seq_identity 0.7
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -20,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.annotation_parser import AnnotationParser
-from src.data.clustering import SequenceClusterer
+from src.data.clustering import SequenceClusterer, fragment_ids_with_structures
 
 
 def parse_args():
@@ -49,6 +62,12 @@ def parse_args():
         default=0.8,
         help="Minimum alignment coverage (0-1)"
     )
+    parser.add_argument(
+        "--cif_dir",
+        type=Path,
+        default=None,
+        help="If set, only cluster fragment_ids that have ≥1 structure file here (same as training data dir)",
+    )
     return parser.parse_args()
 
 
@@ -67,12 +86,25 @@ def main():
     parser = AnnotationParser(args.annotation_csv)
     print(f"  Loaded {len(parser)} annotations")
     
-    # Extract sequences
+    # Extract sequences (optionally restrict to fragments with structure files)
     sequences = {
         ann.fragment_id: ann.fragment_sequence
         for ann in parser
     }
-    print(f"  Extracted {len(sequences)} sequences")
+    n_ann = len(sequences)
+    if args.cif_dir is not None:
+        with_files = fragment_ids_with_structures(args.cif_dir, args.annotation_csv)
+        before = len(sequences)
+        sequences = {fid: sequences[fid] for fid in sequences if fid in with_files}
+        print(f"  Annotation entries: {n_ann}")
+        print(f"  With structure files in {args.cif_dir}: {len(with_files)} fragment IDs")
+        print(f"  Sequences used for clustering (intersection): {len(sequences)} "
+              f"(dropped {before - len(sequences)} without files)")
+        if not sequences:
+            print("ERROR: No sequences left after --cif_dir filter.")
+            sys.exit(1)
+    else:
+        print(f"  Extracted {len(sequences)} sequences (not filtered by --cif_dir)")
     
     # Cluster sequences
     print(f"\nClustering at {args.min_seq_identity*100:.0f}% sequence identity...")
@@ -101,7 +133,6 @@ def main():
     print(f"  Singletons: {n_singletons} ({n_singletons/len(clusters)*100:.1f}%)")
     
     # Save clusters
-    import json
     output_file = args.output_dir / f"clusters_{int(args.min_seq_identity*100)}.json"
     with open(output_file, 'w') as f:
         json.dump(clusters, f, indent=2)
@@ -119,6 +150,19 @@ def main():
         json.dump(seq_to_cluster, f, indent=2)
     
     print(f"Saved sequence-to-cluster mapping to {mapping_file}")
+
+    meta = {
+        "min_seq_identity": args.min_seq_identity,
+        "coverage": args.coverage,
+        "n_sequences_clustered": len(sequences),
+        "n_clusters": len(clusters),
+        "cif_dir_filter": str(args.cif_dir) if args.cif_dir else None,
+    }
+    meta_path = args.output_dir / f"clustering_metadata_{int(args.min_seq_identity*100)}.json"
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"Saved {meta_path}")
+    print("\nNext: python scripts/03_create_splits.py --clusters_json", output_file, "...")
     print("\nDone!")
 
 

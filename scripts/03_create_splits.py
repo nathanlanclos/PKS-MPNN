@@ -2,8 +2,10 @@
 """
 Create train/val/test splits for PKS-MPNN experiments.
 
-Splits are based on sequence clusters to prevent data leakage.
-All 5 AF3 models of a given sequence stay in the same split.
+**Clusters** (from ``02_cluster_sequences.py``) are assigned wholly to
+train, val, or test, so similar sequences never leak across splits.
+**fragment_id** appears once per split file; all structure files that map to
+that ID (e.g. five models) are trained together in that split.
 
 Usage:
     python scripts/03_create_splits.py \
@@ -13,6 +15,9 @@ Usage:
         --train_ratio 0.8 \
         --val_ratio 0.1 \
         --test_ratio 0.1
+
+    # Report how many PDB/CIF files fall in each split (optional)
+    python scripts/03_create_splits.py ... --cif_dir data/raw
 """
 
 import argparse
@@ -25,7 +30,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.annotation_parser import AnnotationParser
-from src.data.clustering import create_cluster_aware_splits, save_splits
+from src.data.clustering import (
+    create_cluster_aware_splits,
+    save_splits,
+    count_structure_files_per_fragment,
+    split_structure_file_totals,
+)
 
 
 def parse_args():
@@ -52,6 +62,12 @@ def parse_args():
     parser.add_argument("--val_ratio", type=float, default=0.1)
     parser.add_argument("--test_ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--cif_dir",
+        type=Path,
+        default=None,
+        help="If set, count structure files per split and write split_structure_stats.json",
+    )
     return parser.parse_args()
 
 
@@ -127,12 +143,38 @@ def main():
         'val_ratio': args.val_ratio,
         'test_ratio': args.test_ratio,
         'seed': args.seed,
+        'clusters_json': str(args.clusters_json.resolve()),
         'n_clusters': len(clusters),
         'n_train': len(train_ids),
         'n_val': len(val_ids),
         'n_test': len(test_ids),
     }
     
+    file_counts = None
+    if args.cif_dir is not None:
+        print(f"\nCounting structure files under {args.cif_dir}...")
+        file_counts = count_structure_files_per_fragment(args.cif_dir, args.annotation_csv)
+        stats = split_structure_file_totals(train_ids, val_ids, test_ids, file_counts)
+        metadata["structure_files"] = stats
+        metadata["total_structure_files"] = (
+            stats["train_structure_files"]
+            + stats["val_structure_files"]
+            + stats["test_structure_files"]
+        )
+        print(
+            f"  Structure files — train: {stats['train_structure_files']}, "
+            f"val: {stats['val_structure_files']}, test: {stats['test_structure_files']}"
+        )
+        with open(args.output_dir / "split_structure_stats.json", 'w') as f:
+            json.dump(
+                {
+                    "per_split_totals": stats,
+                    "note": "Per fragment_id, training loads all matching files; counts sum models.",
+                },
+                f,
+                indent=2,
+            )
+
     with open(args.output_dir / "split_metadata.json", 'w') as f:
         json.dump(metadata, f, indent=2)
     

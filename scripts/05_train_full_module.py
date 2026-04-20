@@ -100,6 +100,8 @@ def main():
         split_ids=list(train_ids),
         high_confidence_threshold=cropping_config.get('high_confidence_threshold', 70.0),
         low_confidence_threshold=cropping_config.get('low_confidence_threshold', 50.0),
+        min_trainable_residues=cropping_config.get('min_trainable_residues', 100),
+        exclude_low_confidence=cropping_config.get('exclude_low_confidence', True),
     )
     
     val_dataset = FullModuleDataset(
@@ -108,6 +110,8 @@ def main():
         split_ids=list(val_ids),
         high_confidence_threshold=cropping_config.get('high_confidence_threshold', 70.0),
         low_confidence_threshold=cropping_config.get('low_confidence_threshold', 50.0),
+        min_trainable_residues=cropping_config.get('min_trainable_residues', 100),
+        exclude_low_confidence=cropping_config.get('exclude_low_confidence', True),
     )
     
     print(f"  Train samples: {len(train_dataset)}")

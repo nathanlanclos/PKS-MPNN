@@ -335,13 +335,13 @@ def match_cif_to_annotation(
     annotation_parser: AnnotationParser
 ) -> Optional[str]:
     """
-    Match a CIF filename to its corresponding annotation fragment_id.
+    Match a structure filename to its corresponding annotation fragment_id.
     
-    This function handles the mapping between CIF filenames and the
-    fragment_id format in the annotations CSV.
+    This function handles the mapping between structure filenames (``.cif``,
+    ``.pdb``, etc.) and the fragment_id format in the annotations CSV.
     
     Args:
-        cif_filename: Name of the CIF file (without path)
+        cif_filename: Name of the structure file (without path), e.g. ``foo.pdb``
         annotation_parser: Loaded AnnotationParser
         
     Returns:

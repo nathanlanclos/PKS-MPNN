@@ -16,7 +16,8 @@ dependencies:
   - python=3.10
   - pytorch=2.1
   - pytorch-cuda=11.8
-  - numpy>=1.24
+  # Pin below 2.x until PyTorch wheels in this env are built against NumPy 2
+  - numpy>=1.24,<2
   - pandas>=2.0
   - scipy>=1.10
   - scikit-learn>=1.3

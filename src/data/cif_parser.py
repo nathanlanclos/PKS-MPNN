@@ -34,6 +34,48 @@ AA_3TO1 = {
 
 BACKBONE_ATOMS = ['N', 'CA', 'C', 'O']
 
+# Extensions we treat as structure files (AlphaFold CIF or PDB from any source)
+STRUCTURE_SUFFIXES = {'.cif', '.mmcif', '.pdb', '.ent'}
+# If both foo.cif and foo.pdb exist, prefer the earlier (higher-confidence) format for AF outputs
+_STRUCTURE_SUFFIX_PRIORITY = {'.cif': 0, '.mmcif': 1, '.pdb': 2, '.ent': 3}
+
+
+def list_structure_files(directory: Union[str, Path]) -> List[Path]:
+    """
+    List structure files in a directory: .cif, .mmcif, .pdb, .ent.
+
+    If two files share the same stem (e.g. ``foo.cif`` and ``foo.pdb``), keeps one
+    file per stem, preferring CIF/mmCIF over PDB (typical when both exist).
+
+    Args:
+        directory: Folder to scan (non-recursive).
+
+    Returns:
+        Sorted list of paths to structure files.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        return []
+
+    by_stem: Dict[str, Path] = {}
+    for path in directory.iterdir():
+        if not path.is_file():
+            continue
+        suf = path.suffix.lower()
+        if suf not in STRUCTURE_SUFFIXES:
+            continue
+        stem = path.stem
+        existing = by_stem.get(stem)
+        if existing is None:
+            by_stem[stem] = path
+            continue
+        pr_new = _STRUCTURE_SUFFIX_PRIORITY.get(suf, 99)
+        pr_old = _STRUCTURE_SUFFIX_PRIORITY.get(existing.suffix.lower(), 99)
+        if pr_new < pr_old:
+            by_stem[stem] = path
+
+    return sorted(by_stem.values(), key=lambda p: str(p))
+
 
 @dataclass
 class ParsedStructure:
@@ -83,7 +125,7 @@ class ParsedStructure:
 
 class CIFParser:
     """
-    Parser for CIF/mmCIF files from AlphaFold3 predictions.
+    Parser for structure files: mmCIF/CIF (e.g. AlphaFold3) or PDB.
     
     AlphaFold stores pLDDT confidence scores in the B-factor column.
     These scores range from 0-100:

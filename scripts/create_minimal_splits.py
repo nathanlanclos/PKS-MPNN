@@ -3,11 +3,11 @@
 Create minimal train/val splits for smoke testing.
 
 Creates train.txt and val.txt with only fragment IDs that have matching
-CIF files in the cif_dir. Use this to quickly test the training pipeline
-without running the full clustering/splitting pipeline.
+structure files (.cif, .mmcif, .pdb, .ent) in the cif_dir. Use this to quickly
+test the training pipeline without running the full clustering/splitting pipeline.
 
 Usage:
-    # Create splits from CIF files in data/raw (5 train, 2 val)
+    # Create splits from structures in data/raw (5 train, 2 val)
     python scripts/create_minimal_splits.py \
         --cif_dir data/raw \
         --annotation_csv fragments_for_prediction_COREONLY.csv \
@@ -27,12 +27,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.annotation_parser import AnnotationParser, match_cif_to_annotation
+from src.data.cif_parser import list_structure_files
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Create minimal splits for smoke testing")
     parser.add_argument("--cif_dir", type=Path, required=True,
-                       help="Directory containing CIF files")
+                       help="Directory containing structure files (.cif, .mmcif, .pdb, .ent)")
     parser.add_argument("--annotation_csv", type=Path, required=True,
                        help="Path to annotations CSV")
     parser.add_argument("--output_dir", type=Path, default=Path("data/splits"),
@@ -53,15 +54,15 @@ def main():
     print(f"Loading annotations from {args.annotation_csv}...")
     annotation_parser = AnnotationParser(args.annotation_csv)
     
-    # Find CIF files and match to annotations
-    cif_files = list(args.cif_dir.glob("*.cif"))
+    # Find structure files and match to annotations
+    cif_files = list_structure_files(args.cif_dir)
     if not cif_files:
-        print(f"\nERROR: No CIF files found in {args.cif_dir}")
-        print("Please link or copy CIF files first, e.g.:")
-        print("  ln -s /path/to/your/cif/files data/raw")
+        print(f"\nERROR: No structure files (.cif, .mmcif, .pdb, .ent) found in {args.cif_dir}")
+        print("Please link or copy structure files first, e.g.:")
+        print("  ln -s /path/to/your/structures data/raw")
         sys.exit(1)
     
-    print(f"Found {len(cif_files)} CIF files")
+    print(f"Found {len(cif_files)} structure files")
     
     matched = []
     for cif_path in cif_files:

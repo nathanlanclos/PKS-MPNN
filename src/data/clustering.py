@@ -14,7 +14,65 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 import pandas as pd
-from collections import defaultdict
+from collections import defaultdict, Counter
+
+
+def fragment_ids_with_structures(
+    cif_dir: Path,
+    annotation_csv: Path,
+) -> Set[str]:
+    """
+    Fragment IDs that have at least one structure file in ``cif_dir``.
+
+    Uses the same filename→ID matching as training (``match_cif_to_annotation``).
+    All structure files for a given fragment (e.g. five models) map to one ID;
+    splits list each ID once, so all files stay in the same split.
+    """
+    from .cif_parser import list_structure_files
+    from .annotation_parser import AnnotationParser, match_cif_to_annotation
+
+    cif_dir = Path(cif_dir)
+    parser = AnnotationParser(annotation_csv)
+    found: Set[str] = set()
+    for path in list_structure_files(cif_dir):
+        fid = match_cif_to_annotation(path.name, parser)
+        if fid is not None:
+            found.add(fid)
+    return found
+
+
+def count_structure_files_per_fragment(
+    cif_dir: Path,
+    annotation_csv: Path,
+) -> Dict[str, int]:
+    """Count structure files per fragment_id (e.g. 5 models → 5)."""
+    from .cif_parser import list_structure_files
+    from .annotation_parser import AnnotationParser, match_cif_to_annotation
+
+    parser = AnnotationParser(annotation_csv)
+    counts: Counter = Counter()
+    for path in list_structure_files(cif_dir):
+        fid = match_cif_to_annotation(path.name, parser)
+        if fid is not None:
+            counts[fid] += 1
+    return dict(counts)
+
+
+def split_structure_file_totals(
+    train_ids: Set[str],
+    val_ids: Set[str],
+    test_ids: Set[str],
+    file_counts: Dict[str, int],
+) -> Dict[str, int]:
+    """Total structure files per split (sums files for all fragment IDs in split)."""
+    def total(ids: Set[str]) -> int:
+        return sum(file_counts.get(fid, 0) for fid in ids)
+
+    return {
+        "train_structure_files": total(train_ids),
+        "val_structure_files": total(val_ids),
+        "test_structure_files": total(test_ids),
+    }
 
 
 class SequenceClusterer:

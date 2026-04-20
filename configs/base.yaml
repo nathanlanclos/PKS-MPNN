@@ -36,6 +36,7 @@ finetune:
   unfreeze_phase: decoder_only  # decoder_only, encoder_decoder, full
 
 # Data paths (relative to repo root)
+# cif_dir may contain .cif, .mmcif, .pdb, or .ent structure files
 data:
   cif_dir: data/raw
   annotation_csv: fragments_for_prediction_COREONLY.csv

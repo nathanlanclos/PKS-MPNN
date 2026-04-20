@@ -1,0 +1,50 @@
+[
+  {
+    "min_seq_identity": 0.5,
+    "n_clusters": 263,
+    "n_singleton_clusters": 107,
+    "mean_cluster_size": 6.076045627376426,
+    "max_cluster_size": 129,
+    "n_sequences": 1598
+  },
+  {
+    "min_seq_identity": 0.6,
+    "n_clusters": 690,
+    "n_singleton_clusters": 346,
+    "mean_cluster_size": 2.315942028985507,
+    "max_cluster_size": 37,
+    "n_sequences": 1598
+  },
+  {
+    "min_seq_identity": 0.7,
+    "n_clusters": 1041,
+    "n_singleton_clusters": 711,
+    "mean_cluster_size": 1.5350624399615753,
+    "max_cluster_size": 9,
+    "n_sequences": 1598
+  },
+  {
+    "min_seq_identity": 0.8,
+    "n_clusters": 1279,
+    "n_singleton_clusters": 1038,
+    "mean_cluster_size": 1.2494136043784208,
+    "max_cluster_size": 6,
+    "n_sequences": 1598
+  },
+  {
+    "min_seq_identity": 0.9,
+    "n_clusters": 1387,
+    "n_singleton_clusters": 1220,
+    "mean_cluster_size": 1.1521268925739006,
+    "max_cluster_size": 4,
+    "n_sequences": 1598
+  },
+  {
+    "min_seq_identity": 0.95,
+    "n_clusters": 1437,
+    "n_singleton_clusters": 1299,
+    "mean_cluster_size": 1.1120389700765483,
+    "max_cluster_size": 4,
+    "n_sequences": 1598
+  }
+]

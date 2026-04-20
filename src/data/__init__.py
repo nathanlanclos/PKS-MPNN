@@ -9,8 +9,29 @@ Includes:
 - Clustering and splitting utilities
 """
 
-from .cif_parser import CIFParser
+from .cif_parser import CIFParser, list_structure_files
 from .annotation_parser import AnnotationParser
-from .dataset import PKSDataset, PKSBatchSampler
 from .clustering import SequenceClusterer
 from .splits import DatasetSplitter
+
+
+def __getattr__(name: str):
+    """Load torch-backed dataset classes only when accessed (avoids importing torch for annotation-only scripts)."""
+    if name == "PKSDataset":
+        from .dataset import PKSDataset
+        return PKSDataset
+    if name == "PKSBatchSampler":
+        from .dataset import PKSBatchSampler
+        return PKSBatchSampler
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "CIFParser",
+    "list_structure_files",
+    "AnnotationParser",
+    "PKSDataset",
+    "PKSBatchSampler",
+    "SequenceClusterer",
+    "DatasetSplitter",
+]

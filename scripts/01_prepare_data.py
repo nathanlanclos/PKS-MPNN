@@ -3,7 +3,7 @@
 Prepare PKS-MPNN training data.
 
 This script:
-1. Parses CIF files from AlphaFold3 predictions
+1. Parses structure files (CIF/mmCIF or PDB) from predictions or experiments
 2. Extracts pLDDT confidence scores
 3. Matches structures to domain annotations
 4. Saves processed data for training
@@ -25,7 +25,7 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data.cif_parser import CIFParser
+from src.data.cif_parser import CIFParser, list_structure_files
 from src.data.annotation_parser import AnnotationParser, match_cif_to_annotation
 
 
@@ -35,7 +35,7 @@ def parse_args():
         "--cif_dir",
         type=Path,
         required=True,
-        help="Directory containing CIF files"
+        help="Directory containing structure files (.cif, .mmcif, .pdb, .ent)"
     )
     parser.add_argument(
         "--annotation_csv",
@@ -73,13 +73,13 @@ def main():
     annotation_parser = AnnotationParser(args.annotation_csv)
     print(f"  Loaded {len(annotation_parser)} annotations")
     
-    # Find CIF files
-    print(f"\nFinding CIF files in {args.cif_dir}...")
-    cif_files = list(args.cif_dir.glob("*.cif"))
-    print(f"  Found {len(cif_files)} CIF files")
+    # Find structure files
+    print(f"\nFinding structure files in {args.cif_dir}...")
+    cif_files = list_structure_files(args.cif_dir)
+    print(f"  Found {len(cif_files)} structure files")
     
-    # Parse CIF files and match to annotations
-    print("\nParsing CIF files and matching to annotations...")
+    # Parse structures and match to annotations
+    print("\nParsing structures and matching to annotations...")
     cif_parser = CIFParser()
     
     matched = []
@@ -130,7 +130,7 @@ def main():
     print("\n" + "=" * 60)
     print("Summary")
     print("=" * 60)
-    print(f"  Total CIF files:      {len(cif_files)}")
+    print(f"  Total structure files: {len(cif_files)}")
     print(f"  Successfully matched: {len(matched)}")
     print(f"  Unmatched:            {len(unmatched)}")
     print(f"  Parse errors:         {len(parse_errors)}")

@@ -15,8 +15,8 @@ from typing import Dict, List, Optional, Tuple, Union
 import json
 import random
 
-from .cif_parser import CIFParser, ParsedStructure
-from .annotation_parser import AnnotationParser, ModuleAnnotation
+from .cif_parser import CIFParser, ParsedStructure, list_structure_files
+from .annotation_parser import AnnotationParser, ModuleAnnotation, match_cif_to_annotation
 from .cropping.domain_only import DomainOnlyCropper, CroppedDomain
 from .cropping.full_module import FullModuleCropper, FullModuleData
 from .cropping.context_aware import ContextAwareCropper, ContextAwareCrop
@@ -110,7 +110,7 @@ class PKSDataset(Dataset):
         Initialize the dataset.
         
         Args:
-            cif_dir: Directory containing CIF files
+            cif_dir: Directory containing structure files (.cif, .mmcif, .pdb, .ent)
             annotation_csv: Path to annotations CSV
             split_ids: List of fragment IDs for this split (train/val/test)
             cropping_strategy: One of "domain_only", "full_module", "context_aware"
@@ -139,24 +139,23 @@ class PKSDataset(Dataset):
         else:
             raise ValueError(f"Unknown cropping strategy: {cropping_strategy}")
         
-        # Build index of available CIF files
+        # Build index of available structure files
         self._build_index()
         
         # Cache for parsed structures
         self._structure_cache: Dict[str, ParsedStructure] = {}
     
     def _build_index(self):
-        """Build index of CIF files and their annotations."""
+        """Build index of structure files and their annotations."""
         self.samples = []
         
-        # Find all CIF files
-        cif_files = list(self.cif_dir.glob("*.cif"))
+        structure_files = list_structure_files(self.cif_dir)
         
-        for cif_path in cif_files:
+        for cif_path in structure_files:
             cif_name = cif_path.stem
             
-            # Try to find matching annotation
-            fragment_id = self._match_annotation(cif_name)
+            # Match filename to annotation (same rules as create_minimal_splits / clustering)
+            fragment_id = self._match_annotation(cif_path)
             if fragment_id is None:
                 continue
             
@@ -172,25 +171,9 @@ class PKSDataset(Dataset):
         
         print(f"Found {len(self.samples)} samples for {self.cropping_strategy}")
     
-    def _match_annotation(self, cif_name: str) -> Optional[str]:
-        """Match CIF filename to annotation fragment_id."""
-        import re
-        
-        # Direct match
-        if cif_name in self.annotation_parser:
-            return cif_name
-        
-        # Remove model suffix
-        base_name = re.sub(r'_model_\d+$', '', cif_name)
-        if base_name in self.annotation_parser:
-            return base_name
-        
-        # Remove rank suffix
-        base_name = re.sub(r'_rank_\d+$', '', cif_name)
-        if base_name in self.annotation_parser:
-            return base_name
-        
-        return None
+    def _match_annotation(self, structure_path: Path) -> Optional[str]:
+        """Map structure basename to annotation ``fragment_id`` (must match split scripts)."""
+        return match_cif_to_annotation(structure_path.name, self.annotation_parser)
     
     def _load_structure(self, sample: Dict) -> ParsedStructure:
         """Load and optionally cache a structure."""
@@ -300,7 +283,7 @@ class DomainOnlyDataset(PKSDataset):
         Initialize domain-only dataset.
         
         Args:
-            cif_dir: Directory containing CIF files
+            cif_dir: Directory containing structure files (.cif, .mmcif, .pdb, .ent)
             annotation_csv: Path to annotations CSV
             domain_type: Specific domain type to train on (e.g., "KS", "AT")
             split_ids: List of fragment IDs for this split
@@ -333,17 +316,21 @@ class FullModuleDataset(PKSDataset):
         split_ids: Optional[List[str]] = None,
         high_confidence_threshold: float = 70.0,
         low_confidence_threshold: float = 50.0,
+        min_trainable_residues: int = 100,
+        exclude_low_confidence: bool = True,
         **kwargs
     ):
         """
         Initialize full module dataset.
         
         Args:
-            cif_dir: Directory containing CIF files
+            cif_dir: Directory containing structure files (.cif, .mmcif, .pdb, .ent)
             annotation_csv: Path to annotations CSV
             split_ids: List of fragment IDs for this split
             high_confidence_threshold: pLDDT for loss
             low_confidence_threshold: pLDDT for graph inclusion
+            min_trainable_residues: Min residues above ``high_confidence_threshold`` to keep a structure
+            exclude_low_confidence: Exclude residues below ``low_confidence_threshold`` from the graph
         """
         super().__init__(
             cif_dir=cif_dir,
@@ -353,6 +340,8 @@ class FullModuleDataset(PKSDataset):
             cropper_kwargs={
                 'high_confidence_threshold': high_confidence_threshold,
                 'low_confidence_threshold': low_confidence_threshold,
+                'min_trainable_residues': min_trainable_residues,
+                'exclude_low_confidence': exclude_low_confidence,
             },
             **kwargs
         )
@@ -374,7 +363,7 @@ class ContextAwareDataset(PKSDataset):
         Initialize context-aware dataset.
         
         Args:
-            cif_dir: Directory containing CIF files
+            cif_dir: Directory containing structure files (.cif, .mmcif, .pdb, .ent)
             annotation_csv: Path to annotations CSV
             split_ids: List of fragment IDs for this split
             k_neighbors: Number of neighbors for context

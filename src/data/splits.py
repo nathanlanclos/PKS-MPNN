@@ -169,26 +169,28 @@ def map_cif_to_annotations(
     model_pattern: str = r"_model_(\d+)"
 ) -> Dict[str, str]:
     """
-    Map CIF filenames to annotation fragment_ids.
+    Map structure filenames to annotation fragment_ids.
     
-    Handles the case where CIF files have model number suffixes.
+    Handles model-number suffixes and other common filename patterns.
     
     Args:
-        cif_dir: Directory containing CIF files
+        cif_dir: Directory containing structure files (.cif, .mmcif, .pdb, .ent)
         annotation_parser: Loaded annotation parser
         model_pattern: Regex pattern for model number in filename
         
     Returns:
-        Dict mapping CIF filename (without extension) to fragment_id
+        Dict mapping structure filename stem to fragment_id
     """
     import re
+
+    from .cif_parser import list_structure_files
     
     cif_dir = Path(cif_dir)
     mapping = {}
     
     pattern = re.compile(model_pattern)
     
-    for cif_file in cif_dir.glob("*.cif"):
+    for cif_file in list_structure_files(cif_dir):
         cif_name = cif_file.stem
         
         # Try direct match

@@ -143,7 +143,7 @@ class PKSTrainer:
         self.per_domain_metrics.reset()
         self.confidence_metrics.reset()
         
-        pbar = tqdm(self.train_loader, desc=f"Epoch {self.epoch + 1}")
+        pbar = tqdm(self.train_loader, desc=f"Epoch {self.epoch}")
         
         for batch_idx, batch in enumerate(pbar):
             # Move to device
